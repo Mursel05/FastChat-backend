@@ -1,5 +1,5 @@
 import { WebSocketServer } from "ws";
-import mongoose, { connect } from "mongoose";
+import mongoose from "mongoose";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -8,9 +8,7 @@ const URL = process.env.MONGO_DATABASE_URL;
 
 mongoose
   .connect(URL)
-  .then(() => {
-    console.log("MongoDB connected");
-  })
+  .then(() => console.log("MongoDB connected"))
   .catch((e) => console.log(e));
 
 const Message = mongoose.model("Message", {
@@ -53,12 +51,24 @@ async function sendMessage(uid) {
   broadcast(JSON.stringify({ success: "Chat added", messages }), uid);
 }
 
+async function setLastSeen(uid, online) {
+  const d = new Date();
+  const user = await User.findOne({ uid });
+  const lastSeen = online ? online : d.toString().slice(4, 21);
+  if (user) {
+    user.lastSeen = lastSeen;
+    await user.save();
+  }
+}
 wss.on("connection", function connection(ws) {
   ws.on("message", async function message(req) {
     try {
       const data = JSON.parse(req);
-      !clients.some((client) => client.uid == data.uid) &&
+      if (data.uid && !clients.some((client) => client.uid == data.uid)) {
         clients.push({ ws, uid: data.uid });
+        setLastSeen(data.uid, "Online");
+        console.log(data.uid, "connected");
+      }
       switch (data.type) {
         case "addChat":
           {
@@ -81,72 +91,101 @@ wss.on("connection", function connection(ws) {
             const user = await User.findOne({
               uid: data.uid,
             });
-            const messages = await Message.find({
-              persons: { $in: [data.uid] },
-            });
             if (!user) {
               ws.send(JSON.stringify({ error: "User not found" }));
+            } else {
+              const messages = await Message.find({
+                persons: { $in: [data.uid] },
+              });
+              const uids = messages?.map((message) =>
+                message.persons[0] == user?.uid
+                  ? message.persons[1]
+                  : message.persons[0]
+              );
+              const otherUsers = uids.map(
+                async (uid) =>
+                  await User.findOne({
+                    uid,
+                  })
+              );
+              ws.send(
+                JSON.stringify({
+                  success: "Data founded",
+                  messages,
+                  user,
+                  otherUsers: await Promise.all(otherUsers),
+                })
+              );
             }
-            ws.send(
-              JSON.stringify({ success: "Data founded", user, messages })
-            );
           }
           break;
         case "addMessage":
           {
-            const message = new Message({
-              persons: data.persons,
-              chats: [],
-            });
-            await message.save();
             const user = await User.findOne({
               uid: data.uid,
             });
-            const messages = await Message.find({
-              persons: { $in: [data.uid] },
-            });
             if (!user) {
               ws.send(JSON.stringify({ error: "User not found" }));
+            } else {
+              const message = new Message({
+                persons: data.persons,
+                chats: [],
+              });
+              await message.save();
+              const messages = await Message.find({
+                persons: { $in: [data.uid] },
+              });
+              const uids = messages?.map((message) =>
+                message.persons[0] == user?.uid
+                  ? message.persons[1]
+                  : message.persons[0]
+              );
+              const otherUsers = uids.map(
+                async (uid) =>
+                  await User.findOne({
+                    uid,
+                  })
+              );
+
+              ws.send(
+                JSON.stringify({
+                  success: "Message added",
+                  messages,
+                  otherUsers: await Promise.all(otherUsers),
+                })
+              );
             }
-            ws.send(JSON.stringify({ success: "Message added", messages }));
           }
           break;
         case "addUser":
           {
-            const user = new User({
-              email: data.email,
-              lastSeen: data.lastSeen,
-              name: data.name,
-              photo: data.photo,
-              surname: data.surname,
+            const userSearch = await User.findOne({
               uid: data.uid,
             });
-            await user.save();
-            const messages = await Message.find({
-              persons: { $in: [data.uid] },
-            });
-            ws.send(JSON.stringify({ success: "User added", user, messages }));
+            if (!userSearch) {
+              const d = new Date();
+              const user = new User({
+                email: data.email,
+                lastSeen: d.toString().slice(4, 21),
+                name: data.name,
+                photo: data.photo,
+                surname: data.surname,
+                uid: data.uid,
+              });
+              await user.save();
+            }
           }
           break;
-        case "getUserByUid":
+        case "getUsersByEmail":
           {
-            const otherUser = await User.findOne({
-              uid: data.otherUid,
+            const users = await User.find({
+              //make find by email with letters
+              email: { $regex: data.email, $options: "i" },
             });
-            const user = await User.findOne({
-              uid: data.uid,
-            });
-            const messages = await Message.find({
-              persons: { $in: [data.uid] },
-            });
-            if (!user) {
-              ws.send(JSON.stringify({ error: "User not found" }));
-            }
             ws.send(
               JSON.stringify({
                 success: "User founded",
-                otherUser,
-                messages,
+                users,
               })
             );
           }
@@ -162,6 +201,8 @@ wss.on("connection", function connection(ws) {
   ws.on("close", () => {
     const index = clients.findIndex((client) => client.ws === ws);
     if (index !== -1) {
+      console.log(clients[index].uid, "disconnected");
+      setLastSeen(clients[index].uid);
       clients.splice(index, 1)[0].uid;
     }
   });
