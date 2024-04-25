@@ -53,6 +53,8 @@ async function sendMessage(uid) {
 
 async function setLastSeen(uid, online) {
   const d = new Date();
+  console.log(new Date().toString());
+
   const user = await User.findOne({ uid });
   const lastSeen = online ? online : d.toString().slice(4, 21);
   if (user) {
