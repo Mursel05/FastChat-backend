@@ -18,6 +18,7 @@ const Message = mongoose.model("Message", {
       time: String,
       message: String,
       sender: String,
+      seen: Boolean,
     },
   ],
 });
@@ -53,8 +54,6 @@ async function sendMessage(uid) {
 
 async function setLastSeen(uid, online) {
   const d = new Date();
-  console.log(new Date().toString());
-
   const user = await User.findOne({ uid });
   const lastSeen = online ? online : d.toString().slice(4, 21);
   if (user) {
@@ -79,6 +78,26 @@ wss.on("connection", function connection(ws) {
             });
             if (message) {
               message.chats = [...message.chats, data.chat];
+              await message.save();
+              data.persons.forEach((person) => {
+                sendMessage(person);
+              });
+            } else {
+              ws.send(JSON.stringify({ error: "Message not found" }));
+            }
+          }
+          break;
+        case "changeSeen":
+          {
+            const message = await Message.findOne({
+              persons: { $all: data.persons },
+            });
+            if (message) {
+              for (let i = message.chats.length - 1; i <= 0; i++) {
+                if (message.chats[i].seen == true) break;
+                if (message.chats[i].sender == data.uid)
+                  message.chats[i].seen = true;
+              }
               await message.save();
               data.persons.forEach((person) => {
                 sendMessage(person);
