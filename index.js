@@ -45,11 +45,27 @@ const broadcast = (data, uid) => {
     client.ws.send(data);
   }
 };
-async function sendMessage(uid) {
+async function sendMessage(userUid, success) {
   const messages = await Message.find({
-    persons: { $in: [uid] },
+    persons: { $in: [userUid] },
   });
-  broadcast(JSON.stringify({ success: "Chat added", messages }), uid);
+  const uids = messages?.map((message) =>
+    message.persons[0] == userUid ? message.persons[1] : message.persons[0]
+  );
+  const otherUsers = uids.map(
+    async (uid) =>
+      await User.findOne({
+        uid,
+      })
+  );
+  broadcast(
+    JSON.stringify({
+      success,
+      messages,
+      otherUsers: await Promise.all(otherUsers),
+    }),
+    userUid
+  );
 }
 
 async function setLastSeen(uid, online) {
@@ -80,7 +96,7 @@ wss.on("connection", function connection(ws) {
               message.chats = [...message.chats, data.chat];
               await message.save();
               data.persons.forEach((person) => {
-                sendMessage(person);
+                sendMessage(person, "Chat added");
               });
             } else {
               ws.send(JSON.stringify({ error: "Message not found" }));
@@ -93,14 +109,12 @@ wss.on("connection", function connection(ws) {
               persons: { $all: data.persons },
             });
             if (message) {
-              for (let i = message.chats.length - 1; i <= 0; i++) {
-                if (message.chats[i].seen == true) break;
-                if (message.chats[i].sender == data.uid)
-                  message.chats[i].seen = true;
-              }
+              message.chats = message.chats.map((chat) =>
+                chat.sender == data.uid ? { ...chat, seen: true } : chat
+              );
               await message.save();
               data.persons.forEach((person) => {
-                sendMessage(person);
+                sendMessage(person, "Seen changed");
               });
             } else {
               ws.send(JSON.stringify({ error: "Message not found" }));
@@ -167,14 +181,9 @@ wss.on("connection", function connection(ws) {
                     uid,
                   })
               );
-
-              ws.send(
-                JSON.stringify({
-                  success: "Message added",
-                  messages,
-                  otherUsers: await Promise.all(otherUsers),
-                })
-              );
+              data.persons.forEach((person) => {
+                sendMessage(person, "Message added");
+              });
             }
           }
           break;
