@@ -9,7 +9,7 @@ const URL = process.env.MONGO_DATABASE_URL;
 mongoose
   .connect(URL)
   .then(() => console.log("MongoDB connected"))
-  .catch((e) => console.log(e));
+  .catch((e) => console.log("mongoDb", e));
 
 const Message = mongoose.model("Message", {
   persons: [String],
@@ -33,7 +33,7 @@ const User = mongoose.model("User", {
 });
 
 const wss = new WebSocketServer({ port: PORT }, (err) => {
-  if (err) console.log(err);
+  if (err) console.log("socket", err);
   else console.log("WebSocketServer is running on port", PORT);
 });
 
@@ -209,7 +209,6 @@ wss.on("connection", function connection(ws) {
         case "getUsersByEmail":
           {
             const users = await User.find({
-              //make find by email with letters
               email: { $regex: data.email, $options: "i" },
             });
             ws.send(
@@ -225,7 +224,7 @@ wss.on("connection", function connection(ws) {
       }
     } catch (error) {
       ws.send(JSON.stringify({ error: "Invalid JSON" }));
-      console.log(error);
+      console.log("Invalid JSON", error);
     }
   });
   ws.on("close", () => {
