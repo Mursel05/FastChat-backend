@@ -110,7 +110,9 @@ wss.on("connection", function connection(ws) {
             });
             if (message) {
               message.chats = message.chats.map((chat) =>
-                chat.sender == data.uid ? { ...chat, seen: true } : chat
+                chat.sender == data.otherUserUid
+                  ? { ...chat, seen: true }
+                  : chat
               );
               await message.save();
               data.persons.forEach((person) => {
@@ -219,12 +221,41 @@ wss.on("connection", function connection(ws) {
             );
           }
           break;
-        default:
-          ws.send(JSON.stringify({ error: "Invalid type" }));
+        default: {
+          const messages = await Message.find({
+            persons: { $in: [data.uid] },
+          });
+          const uids = messages?.map((message) =>
+            message.persons[0] == data.uid
+              ? message.persons[1]
+              : message.persons[0]
+          );
+          const otherUsers = uids.map(
+            async (uid) =>
+              await User.findOne({
+                uid,
+              })
+          );
+          ws.send(
+            JSON.stringify({ error: "Invalid type", messages, otherUsers })
+          );
+        }
       }
     } catch (error) {
-      ws.send(JSON.stringify({ error: "Invalid JSON" }));
-      console.log("Invalid JSON", error);
+      const data = JSON.parse(req);
+      const messages = await Message.find({
+        persons: { $in: [data.uid] },
+      });
+      const uids = messages?.map((message) =>
+        message.persons[0] == data.uid ? message.persons[1] : message.persons[0]
+      );
+      const otherUsers = uids.map(
+        async (uid) =>
+          await User.findOne({
+            uid,
+          })
+      );
+      ws.send(JSON.stringify({ error: "Invalid JSON", messages, otherUsers }));
     }
   });
   ws.on("close", () => {
