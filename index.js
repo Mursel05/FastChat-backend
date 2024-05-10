@@ -19,6 +19,7 @@ const Message = mongoose.model("Message", {
       message: String,
       sender: String,
       seen: Boolean,
+      chatType: String,
     },
   ],
 });
@@ -45,6 +46,7 @@ const broadcast = (data, uid) => {
     client.ws.send(data);
   }
 };
+
 async function sendMessage(userUid, success) {
   const messages = await Message.find({
     persons: { $in: [userUid] },
@@ -77,6 +79,7 @@ async function setLastSeen(uid, online) {
     await user.save();
   }
 }
+
 wss.on("connection", function connection(ws) {
   ws.on("message", async function message(req) {
     try {
@@ -95,6 +98,9 @@ wss.on("connection", function connection(ws) {
             if (message) {
               message.chats = [...message.chats, data.chat];
               await message.save();
+              const messages = await Message.find({
+                persons: { $in: data.persons },
+              });
               data.persons.forEach((person) => {
                 sendMessage(person, "Chat added");
               });
