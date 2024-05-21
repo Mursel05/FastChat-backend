@@ -3,6 +3,10 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 dotenv.config();
 
+import { setFlagsFromString } from "v8";
+
+setFlagsFromString("--max-old-space-size=8192");
+
 const PORT = 8080;
 const URL = process.env.MONGO_DATABASE_URL;
 
@@ -33,10 +37,13 @@ const User = mongoose.model("User", {
   uid: String,
 });
 
-const wss = new WebSocketServer({ port: PORT }, (err) => {
-  if (err) console.log("socket", err);
-  else console.log("WebSocketServer is running on port", PORT);
-});
+const wss = new WebSocketServer(
+  { port: PORT, maxPayload: 1024 * 1024 * 200 },
+  (err) => {
+    if (err) console.log("socket", err);
+    else console.log("WebSocketServer is running on port", PORT);
+  }
+);
 
 const clients = [];
 
@@ -98,9 +105,6 @@ wss.on("connection", function connection(ws) {
             if (message) {
               message.chats = [...message.chats, data.chat];
               await message.save();
-              const messages = await Message.find({
-                persons: { $in: data.persons },
-              });
               data.persons.forEach((person) => {
                 sendMessage(person, "Chat added");
               });
@@ -245,6 +249,7 @@ wss.on("connection", function connection(ws) {
           ws.send(
             JSON.stringify({ error: "Invalid type", messages, otherUsers })
           );
+          console.log("Invalid type", error);
         }
       }
     } catch (error) {
@@ -262,6 +267,7 @@ wss.on("connection", function connection(ws) {
           })
       );
       ws.send(JSON.stringify({ error: "Invalid JSON", messages, otherUsers }));
+      console.log("Invalid JSON", error);
     }
   });
   ws.on("close", () => {
