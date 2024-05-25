@@ -20,10 +20,11 @@ const Message = mongoose.model("Message", {
   chats: [
     {
       time: String,
-      message: String,
+      message: String || Array,
       sender: String,
       seen: Boolean,
       chatType: String,
+      chatId: Number,
     },
   ],
 });
