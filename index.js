@@ -16,6 +16,7 @@ mongoose
   .catch((e) => console.log("mongoDb", e));
 
 const Message = mongoose.model("Message", {
+  clearOne: String,
   persons: [String],
   chats: [
     {
@@ -59,9 +60,11 @@ async function sendMessage(userUid, success) {
   const messages = await Message.find({
     persons: { $in: [userUid] },
   });
-  const uids = messages?.map((message) =>
-    message.persons[0] == userUid ? message.persons[1] : message.persons[0]
-  );
+  const uids = messages
+    ?.filter((item) => item.clearOne != userUid)
+    .map((message) =>
+      message.persons[0] == userUid ? message.persons[1] : message.persons[0]
+    );
   const otherUsers = uids.map(
     async (uid) =>
       await User.findOne({
@@ -145,11 +148,13 @@ wss.on("connection", function connection(ws) {
               const messages = await Message.find({
                 persons: { $in: [data.uid] },
               });
-              const uids = messages?.map((message) =>
-                message.persons[0] == user?.uid
-                  ? message.persons[1]
-                  : message.persons[0]
-              );
+              const uids = messages
+                .filter((item) => item.clearOne != user?.uid)
+                ?.map((message) =>
+                  message.persons[0] == user?.uid
+                    ? message.persons[1]
+                    : message.persons[0]
+                );
               const otherUsers = uids.map(
                 async (uid) =>
                   await User.findOne({
@@ -177,26 +182,57 @@ wss.on("connection", function connection(ws) {
             } else {
               const message = new Message({
                 persons: data.persons,
+                clearOne: "",
                 chats: [],
               });
               await message.save();
+              data.persons.forEach((person) => {
+                sendMessage(person, "Message added");
+              });
+            }
+          }
+          break;
+        case "deleteMessage":
+          {
+            const user = await User.findOne({
+              uid: data.uid,
+            });
+            if (!user) {
+              ws.send(JSON.stringify({ error: "User not found" }));
+            } else {
+              const message = await Message.findOne({
+                _id: data.messageId,
+              });
+              if (message.clearOne == "") {
+                message.clearOne = data.uid;
+                await message.save();
+              } else {
+                await Message.deleteOne({ _id: data.messageId });
+              }
               const messages = await Message.find({
                 persons: { $in: [data.uid] },
               });
-              const uids = messages?.map((message) =>
-                message.persons[0] == user?.uid
-                  ? message.persons[1]
-                  : message.persons[0]
-              );
+              const uids = messages
+                .filter((item) => item.clearOne != user?.uid)
+                ?.map((message) =>
+                  message.persons[0] == user?.uid
+                    ? message.persons[1]
+                    : message.persons[0]
+                );
               const otherUsers = uids.map(
                 async (uid) =>
                   await User.findOne({
                     uid,
                   })
               );
-              data.persons.forEach((person) => {
-                sendMessage(person, "Message added");
-              });
+              ws.send(
+                JSON.stringify({
+                  success: "Message deleted",
+                  messages,
+                  user,
+                  otherUsers: await Promise.all(otherUsers),
+                })
+              );
             }
           }
           break;
@@ -236,11 +272,13 @@ wss.on("connection", function connection(ws) {
           const messages = await Message.find({
             persons: { $in: [data.uid] },
           });
-          const uids = messages?.map((message) =>
-            message.persons[0] == data.uid
-              ? message.persons[1]
-              : message.persons[0]
-          );
+          const uids = messages
+            .filter((item) => item.clearOne != data.uid)
+            ?.map((message) =>
+              message.persons[0] == data.uid
+                ? message.persons[1]
+                : message.persons[0]
+            );
           const otherUsers = uids.map(
             async (uid) =>
               await User.findOne({
@@ -258,9 +296,13 @@ wss.on("connection", function connection(ws) {
       const messages = await Message.find({
         persons: { $in: [data.uid] },
       });
-      const uids = messages?.map((message) =>
-        message.persons[0] == data.uid ? message.persons[1] : message.persons[0]
-      );
+      const uids = messages
+        .filter((item) => item.clearOne != data.uid)
+        ?.map((message) =>
+          message.persons[0] == data.uid
+            ? message.persons[1]
+            : message.persons[0]
+        );
       const otherUsers = uids.map(
         async (uid) =>
           await User.findOne({
