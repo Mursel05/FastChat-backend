@@ -13,10 +13,9 @@ const URL = process.env.MONGO_DATABASE_URL;
 mongoose
   .connect(URL)
   .then(() => console.log("MongoDB connected"))
-  .catch((e) => console.log("mongoDb", e));
+  .catch((e) => console.log("MongoDb err", e));
 
 const Message = mongoose.model("Message", {
-  clearOne: String,
   persons: [String],
   chats: [
     {
@@ -60,11 +59,9 @@ async function sendMessage(userUid, success) {
   const messages = await Message.find({
     persons: { $in: [userUid] },
   });
-  const uids = messages
-    ?.filter((item) => item.clearOne != userUid)
-    .map((message) =>
-      message.persons[0] == userUid ? message.persons[1] : message.persons[0]
-    );
+  const uids = messages.map((message) =>
+    message.persons[0] == userUid ? message.persons[1] : message.persons[0]
+  );
   const otherUsers = uids.map(
     async (uid) =>
       await User.findOne({
@@ -148,13 +145,11 @@ wss.on("connection", function connection(ws) {
               const messages = await Message.find({
                 persons: { $in: [data.uid] },
               });
-              const uids = messages
-                .filter((item) => item.clearOne != user?.uid)
-                ?.map((message) =>
-                  message.persons[0] == user?.uid
-                    ? message.persons[1]
-                    : message.persons[0]
-                );
+              const uids = messages?.map((message) =>
+                message.persons[0] == user?.uid
+                  ? message.persons[1]
+                  : message.persons[0]
+              );
               const otherUsers = uids.map(
                 async (uid) =>
                   await User.findOne({
@@ -182,7 +177,6 @@ wss.on("connection", function connection(ws) {
             } else {
               const message = new Message({
                 persons: data.persons,
-                clearOne: "",
                 chats: [],
               });
               await message.save();
@@ -203,36 +197,10 @@ wss.on("connection", function connection(ws) {
               const message = await Message.findOne({
                 _id: data.messageId,
               });
-              if (message.clearOne == "") {
-                message.clearOne = data.uid;
-                await message.save();
-              } else {
-                await Message.deleteOne({ _id: data.messageId });
-              }
-              const messages = await Message.find({
-                persons: { $in: [data.uid] },
+              await Message.deleteOne({ _id: data.messageId });
+              data.persons.forEach((person) => {
+                sendMessage(person, "Message deleted");
               });
-              const uids = messages
-                .filter((item) => item.clearOne != user?.uid)
-                ?.map((message) =>
-                  message.persons[0] == user?.uid
-                    ? message.persons[1]
-                    : message.persons[0]
-                );
-              const otherUsers = uids.map(
-                async (uid) =>
-                  await User.findOne({
-                    uid,
-                  })
-              );
-              ws.send(
-                JSON.stringify({
-                  success: "Message deleted",
-                  messages,
-                  user,
-                  otherUsers: await Promise.all(otherUsers),
-                })
-              );
             }
           }
           break;
@@ -255,6 +223,27 @@ wss.on("connection", function connection(ws) {
             }
           }
           break;
+        case "updateUser":
+          {
+            let user = await User.findOne({
+              uid: data.uid,
+            });
+            if (user) {
+              user.name = data.user.name;
+              user.surname = data.user.surname;
+              user.photo = data.user.photo;
+              await user.save();
+              ws.send(
+                JSON.stringify({
+                  success: "User updated",
+                  user,
+                })
+              );
+            } else {
+              ws.send(JSON.stringify({ error: "User not found" }));
+            }
+          }
+          break;
         case "getUsersByEmail":
           {
             const users = await User.find({
@@ -263,54 +252,19 @@ wss.on("connection", function connection(ws) {
             ws.send(
               JSON.stringify({
                 success: "User founded",
-                users,
+                users: users.filter((user) => user.uid != data.uid),
               })
             );
           }
           break;
         default: {
-          const messages = await Message.find({
-            persons: { $in: [data.uid] },
-          });
-          const uids = messages
-            .filter((item) => item.clearOne != data.uid)
-            ?.map((message) =>
-              message.persons[0] == data.uid
-                ? message.persons[1]
-                : message.persons[0]
-            );
-          const otherUsers = uids.map(
-            async (uid) =>
-              await User.findOne({
-                uid,
-              })
-          );
-          ws.send(
-            JSON.stringify({ error: "Invalid type", messages, otherUsers })
-          );
-          console.log("Invalid type", error);
+          ws.send(JSON.stringify({ error: "Invalid type" }));
         }
       }
     } catch (error) {
-      const data = JSON.parse(req);
-      const messages = await Message.find({
-        persons: { $in: [data.uid] },
-      });
-      const uids = messages
-        .filter((item) => item.clearOne != data.uid)
-        ?.map((message) =>
-          message.persons[0] == data.uid
-            ? message.persons[1]
-            : message.persons[0]
-        );
-      const otherUsers = uids.map(
-        async (uid) =>
-          await User.findOne({
-            uid,
-          })
-      );
-      ws.send(JSON.stringify({ error: "Invalid JSON", messages, otherUsers }));
-      console.log("Invalid JSON", error);
+      console.log(error);
+      if (error.code == 10334 || error.code == "ERR_OUT_OF_RANGE")
+        ws.send(JSON.stringify({ error: "Memory is full" }));
     }
   });
   ws.on("close", () => {
