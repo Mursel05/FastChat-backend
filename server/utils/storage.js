@@ -19,9 +19,8 @@ const publicStorage = multer.diskStorage({
   filename: function (req, file, cb) {
     const fileName = `${uuidv4()}.${getFileExtension(file)}`;
     req.fileType = file.mimetype;
-    const protocol = req.protocol;
-    const host = req.get("host");
-    req.filePath = `${protocol}://${host}/public/${req.userId}/${fileName}`;
+    const baseUrl = process.env.BASE_URL;
+    req.filePath = `${baseUrl}/public/${req.userId}/${fileName}`;
     cb(null, fileName);
   },
 });
