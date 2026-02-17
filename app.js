@@ -27,6 +27,7 @@ app.use(
 );
 
 app.use(express.json());
+app.set("trust proxy", true);
 
 connectDB();
 
